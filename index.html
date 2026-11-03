@@ -263,6 +263,7 @@
 
     /* カウンターアイテムカード */
     .item-block {
+      position: relative;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
@@ -271,6 +272,20 @@
       flex-direction: column;
       gap: 6px;
       transition: background-color 0.15s, border-color 0.15s;
+      user-select: none;
+      cursor: grab;
+    }
+
+    .item-block:active {
+      cursor: grabbing;
+    }
+
+    .item-block.dragging {
+      opacity: 0.4;
+    }
+
+    .item-block.drag-over {
+      border-top: 2px solid #2563eb;
     }
 
     .item-block:hover {
@@ -278,12 +293,13 @@
       background: #ffffff;
     }
 
-    /* 上部：項目名 ＆ リセット/編集/削除ボタン */
+    /* 上部：項目名 ＆ 各種アクションボタン */
     .item-top-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 6px;
+      position: relative;
     }
 
     .item-title-text {
@@ -300,6 +316,7 @@
       display: flex;
       gap: 4px;
       flex-shrink: 0;
+      align-items: center;
     }
 
     .action-btn {
@@ -319,17 +336,84 @@
     }
     .reset-btn:hover { background: #e2e8f0; color: #334155; }
 
-    .edit-btn {
-      color: #2563eb;
-      background: #eff6ff;
+    /* 時間コピペボタン専用スタイル */
+    .time-paste-btn {
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #bae6fd;
+      font-size: 0.68rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      transition: background-color 0.15s;
     }
-    .edit-btn:hover { background: #dbeafe; }
+    .time-paste-btn:hover {
+      background: #bae6fd;
+      color: #03588a;
+    }
 
-    .delete-btn {
+    /* 三本線メニューボタン */
+    .menu-btn {
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+      font-size: 0.75rem;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.15s, color 0.15s;
+    }
+    .menu-btn:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    /* 各カードに紐づくコンテキストメニューポップアップ */
+    .context-menu {
+      position: absolute;
+      top: 28px;
+      right: 0;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      display: none;
+      flex-direction: column;
+      z-index: 50;
+      min-width: 90px;
+      overflow: hidden;
+    }
+    .context-menu.show {
+      display: flex;
+    }
+    .context-menu-item {
+      padding: 6px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #334155;
+      background: transparent;
+      border: none;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .context-menu-item:hover {
+      background: #f1f5f9;
+    }
+    .context-menu-item.delete {
       color: #dc2626;
+    }
+    .context-menu-item.delete:hover {
       background: #fef2f2;
     }
-    .delete-btn:hover { background: #fee2e2; }
 
     /* カウンターアイテム内の左右レイアウト */
     .item-dual-body {
@@ -838,7 +922,9 @@
   <div class="toast-msg" id="toastMsg"></div>
 
   <script>
-    const COUNTERS_KEY = 'panel_counter_items_v31';
+    const COUNTERS_KEY = 'panel_counter_items_v33';
+    const STOPWATCH_KEY = 'panel_stopwatch_state_v33';
+
     let counters = [];
     let editingId = null;
     let selectedCategory = 'ALL';
@@ -866,10 +952,48 @@
         ];
         saveData();
       }
+
+      // ストップウォッチの状態読み込み
+      const savedSw = localStorage.getItem(STOPWATCH_KEY);
+      if (savedSw) {
+        try {
+          const swData = JSON.parse(savedSw);
+          swElapsedTime = swData.elapsedTime || 0;
+          
+          if (swData.running && swData.targetTimestamp) {
+            // ページを閉じていた間も正確に時間を計測し続けるための復元処理
+            const now = Date.now();
+            if (now < swData.targetTimestamp) {
+              swElapsedTime += (swData.targetTimestamp - now);
+            }
+            swRunning = true;
+            swStartTime = now;
+            swTimerInterval = setInterval(updateSwDisplay, 30);
+
+            const btn = document.getElementById('swStartBtn');
+            if (btn) {
+              btn.textContent = '❚❚ 一時停止';
+              btn.className = 'sw-btn pause';
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
 
     function saveData() {
       localStorage.setItem(COUNTERS_KEY, JSON.stringify(counters));
+    }
+
+    function saveStopwatchState() {
+      const currentMs = swRunning ? (Date.now() - swStartTime + swElapsedTime) : swElapsedTime;
+      const swData = {
+        running: swRunning,
+        elapsedTime: currentMs,
+        targetTimestamp: swRunning ? Date.now() : null
+      };
+      localStorage.setItem(STOPWATCH_KEY, JSON.stringify(swData));
     }
 
     function showToast(message) {
@@ -956,6 +1080,15 @@
         items.forEach(item => {
           const itemBlock = document.createElement('div');
           itemBlock.className = 'item-block';
+          itemBlock.setAttribute('draggable', 'true');
+          itemBlock.dataset.id = item.id;
+
+          // ドラッグ＆ドロップイベントの紐付け
+          itemBlock.addEventListener('dragstart', handleDragStart);
+          itemBlock.addEventListener('dragover', handleDragOver);
+          itemBlock.addEventListener('dragleave', handleDragLeave);
+          itemBlock.addEventListener('drop', handleDrop);
+          itemBlock.addEventListener('dragend', handleDragEnd);
 
           let leftSideHTML = '';
           let rightSideHTML = '';
@@ -974,7 +1107,6 @@
 
             rightSideHTML = `
               <div class="call-counters-section">
-                <!-- 1行目：抽出 -->
                 <div class="sub-counter-row">
                   <span class="sub-counter-label" id="copy-ext-${item.id}" title="クリックして抽出数をコピー">抽出</span>
                   <div class="counter-val-container">
@@ -988,7 +1120,6 @@
                   </div>
                 </div>
 
-                <!-- 2行目：完了 -->
                 <div class="sub-counter-row">
                   <span class="sub-counter-label" id="copy-com-${item.id}" title="クリックして完了数をコピー">完了</span>
                   <div class="counter-val-container">
@@ -1002,7 +1133,6 @@
                   </div>
                 </div>
 
-                <!-- 3行目：残り -->
                 <div class="sub-counter-row">
                   <span class="sub-counter-label" id="copy-rem-${item.id}" title="クリックして残り数をコピー">残り</span>
                   <div class="counter-val-container">
@@ -1020,38 +1150,8 @@
           } else {
             const minVal = (typeof item.minutes === 'number') ? item.minutes : (parseInt(item.minutes, 10) || 0);
 
-            const pasteIconSvg = `
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
-                <rect x="4" y="2" width="14" height="18" rx="2" fill="#FDE047" stroke="#1E293B" stroke-width="2"/>
-                <rect x="7" y="5" width="14" height="17" rx="2" fill="#FFFFFF" stroke="#1E293B" stroke-width="2"/>
-                <line x1="10" y1="10" x2="18" y2="10" stroke="#1E293B" stroke-width="2" stroke-linecap="round"/>
-                <line x1="10" y1="14" x2="18" y2="14" stroke="#1E293B" stroke-width="2" stroke-linecap="round"/>
-                <line x1="10" y1="18" x2="14" y2="18" stroke="#1E293B" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            `;
-
             leftSideHTML = `
               <div class="normal-counters-section">
-                <!-- 1行目：時間 (表示は「時間」、コピーは数値のみ) -->
-                <div class="sub-counter-row">
-                  <span class="sub-counter-label" id="copy-min-${item.id}" title="クリックして時間（数値）をコピー">時間</span>
-                  <div class="counter-val-container">
-                    <input type="number" id="input-min-${item.id}" class="counter-input" value="${minVal}" 
-                      onchange="updateSubCount('${item.id}', 'minutes', this.value)" 
-                      onkeydown="handleInputKeydown(event, '${item.id}', this)">
-                  </div>
-                  <div class="counter-btn-group">
-                    <button class="counter-btn" onclick="pasteCurrentTimeToCounter('${item.id}')" title="ストップウォッチの時間を分で貼付（1分未満は1分）" style="width: 24px; height: 24px; background: #e0f2fe; border-color: #bae6fd; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-                      ${pasteIconSvg}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            `;
-
-            rightSideHTML = `
-              <div class="normal-counters-section">
-                <!-- 2行目：件数 (3桁が完全に収まるよう幅最適化) -->
                 <div class="sub-counter-row">
                   <span class="sub-counter-label" id="copy-val-${item.id}" title="クリックして件数をコピー">件数</span>
                   <div class="counter-val-container">
@@ -1066,16 +1166,53 @@
                 </div>
               </div>
             `;
+
+            rightSideHTML = `
+              <div class="normal-counters-section">
+                <div class="sub-counter-row">
+                  <span class="sub-counter-label" id="copy-min-${item.id}" title="クリックして時間（数値）をコピー">時間</span>
+                  <div class="counter-val-container">
+                    <input type="number" id="input-min-${item.id}" class="counter-input" value="${minVal}" 
+                      onchange="updateSubCount('${item.id}', 'minutes', this.value)" 
+                      onkeydown="handleInputKeydown(event, '${item.id}', this)">
+                  </div>
+                  <div class="counter-btn-group">
+                    <button class="counter-btn minus" onclick="changeSubCount('${item.id}', 'minutes', -1)">－</button>
+                    <button class="counter-btn plus" onclick="changeSubCount('${item.id}', 'minutes', 1)">＋</button>
+                  </div>
+                </div>
+              </div>
+            `;
           }
 
+          // 上部アクション：リセットボタン ＋ （非架電なら時間コピペボタン） ＋ 三本線メニューボタン
+          let topActionsHTML = `
+            <button class="action-btn reset-btn" onclick="resetCounter('${item.id}')" title="データを0にリセット">リセット</button>
+          `;
+          if (!item.isCallList) {
+            topActionsHTML += `
+              <button class="time-paste-btn" onclick="pasteCurrentTimeToCounter('${item.id}')" title="ストップウォッチの時間を既存の時間に加算">
+                時間コピペ
+              </button>
+            `;
+          }
+
+          topActionsHTML += `
+            <div style="position: relative; display: inline-block;">
+              <button class="menu-btn" onclick="toggleContextMenu(event, '${item.id}')" title="メニュー">☰</button>
+              <div class="context-menu" id="contextMenu-${item.id}">
+                <button class="context-menu-item" onclick="openEditModal('${item.id}')">編集</button>
+                <button class="context-menu-item delete" onclick="deleteCounter('${item.id}')">削除</button>
+              </div>
+            </div>
+          `;
+
           itemBlock.innerHTML = `
-            <!-- 上部：項目名 ＆ リセット/編集/削除ボタン -->
+            <!-- 上部：項目名 ＆ 各種ボタン -->
             <div class="item-top-row">
               <span class="item-title-text" title="${escapeHTML(item.label)}">${escapeHTML(item.label)}</span>
               <div class="item-actions">
-                <button class="action-btn reset-btn" onclick="resetCounter('${item.id}')" title="データを0にリセット">リセット</button>
-                <button class="action-btn edit-btn" onclick="openEditModal('${item.id}')">編集</button>
-                <button class="action-btn delete-btn" onclick="deleteCounter('${item.id}')">削除</button>
+                ${topActionsHTML}
               </div>
             </div>
 
@@ -1085,6 +1222,7 @@
               ${rightSideHTML}
             </div>
           `;
+
           itemsContainer.appendChild(itemBlock);
 
           // コピー用イベントの動的バインド
@@ -1095,57 +1233,17 @@
             const comEl = itemsContainer.querySelector(`#copy-com-${item.id}`);
             const remEl = itemsContainer.querySelector(`#copy-rem-${item.id}`);
 
-            if (periodEl) {
-              periodEl.addEventListener('click', () => {
-                copyTextToClipboard(item.extractionPeriod || '', '期間');
-              });
-            }
-            if (accountEl) {
-              accountEl.addEventListener('click', () => {
-                copyTextToClipboard(item.accountName || '', 'アカウント名');
-              });
-            }
-            if (extEl) {
-              extEl.addEventListener('click', () => {
-                const inputEl = itemsContainer.querySelector(`#input-ext-${item.id}`);
-                const currentVal = inputEl ? inputEl.value : (item.countExtracted ?? 0);
-                copyTextToClipboard(currentVal, '抽出数');
-              });
-            }
-            if (comEl) {
-              comEl.addEventListener('click', () => {
-                const inputEl = itemsContainer.querySelector(`#input-com-${item.id}`);
-                const currentVal = inputEl ? inputEl.value : (item.countCompleted ?? 0);
-                copyTextToClipboard(currentVal, '完了数');
-              });
-            }
-            if (remEl) {
-              remEl.addEventListener('click', () => {
-                const inputEl = itemsContainer.querySelector(`#input-rem-${item.id}`);
-                const currentVal = inputEl ? inputEl.value : (item.countRemaining ?? 0);
-                copyTextToClipboard(currentVal, '残り数');
-              });
-            }
+            if (periodEl) periodEl.addEventListener('click', () => copyTextToClipboard(item.extractionPeriod || '', '期間'));
+            if (accountEl) accountEl.addEventListener('click', () => copyTextToClipboard(item.accountName || '', 'アカウント名'));
+            if (extEl) extEl.addEventListener('click', () => copyTextToClipboard(itemsContainer.querySelector(`#input-ext-${item.id}`).value, '抽出数'));
+            if (comEl) comEl.addEventListener('click', () => copyTextToClipboard(itemsContainer.querySelector(`#input-com-${item.id}`).value, '完了数'));
+            if (remEl) remEl.addEventListener('click', () => copyTextToClipboard(itemsContainer.querySelector(`#input-rem-${item.id}`).value, '残り数'));
           } else {
             const minLabelEl = itemsContainer.querySelector(`#copy-min-${item.id}`);
             const valLabelEl = itemsContainer.querySelector(`#copy-val-${item.id}`);
 
-            if (minLabelEl) {
-              minLabelEl.addEventListener('click', () => {
-                const inputEl = itemsContainer.querySelector(`#input-min-${item.id}`);
-                const currentMin = inputEl ? inputEl.value : ((typeof item.minutes === 'number') ? item.minutes : 0);
-                // コピーする値は数値のみ
-                copyTextToClipboard(currentMin, '時間（数値）');
-              });
-            }
-
-            if (valLabelEl) {
-              valLabelEl.addEventListener('click', () => {
-                const inputEl = itemsContainer.querySelector(`#input-val-${item.id}`);
-                const currentVal = inputEl ? inputEl.value : (item.value ?? 0);
-                copyTextToClipboard(currentVal, '件数');
-              });
-            }
+            if (minLabelEl) minLabelEl.addEventListener('click', () => copyTextToClipboard(itemsContainer.querySelector(`#input-min-${item.id}`).value, '時間（数値）'));
+            if (valLabelEl) valLabelEl.addEventListener('click', () => copyTextToClipboard(itemsContainer.querySelector(`#input-val-${item.id}`).value, '件数'));
           }
         });
 
@@ -1154,6 +1252,78 @@
       });
 
       updateCategorySuggestions();
+    }
+
+    /* 三本線メニューの開閉制御 */
+    function toggleContextMenu(event, id) {
+      event.stopPropagation();
+      document.querySelectorAll('.context-menu').forEach(menu => {
+        if (menu.id !== `contextMenu-${id}`) {
+          menu.classList.remove('show');
+        }
+      });
+      const menu = document.getElementById(`contextMenu-${id}`);
+      if (menu) {
+        menu.classList.toggle('show');
+      }
+    }
+
+    window.addEventListener('click', () => {
+      document.querySelectorAll('.context-menu').forEach(menu => {
+        menu.classList.remove('show');
+      });
+    });
+
+    /* ドラッグ＆ドロップ用ハンドラー関数群 */
+    let draggedId = null;
+
+    function handleDragStart(e) {
+      if (e.target.closest('button') || e.target.closest('input')) return;
+      draggedId = this.dataset.id;
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const targetBlock = e.target.closest('.item-block');
+      if (targetBlock && targetBlock.dataset.id !== draggedId) {
+        targetBlock.classList.add('drag-over');
+      }
+    }
+
+    function handleDragLeave(e) {
+      const targetBlock = e.target.closest('.item-block');
+      if (targetBlock) {
+        targetBlock.classList.remove('drag-over');
+      }
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      const targetBlock = e.target.closest('.item-block');
+      if (!targetBlock) return;
+      targetBlock.classList.remove('drag-over');
+
+      const targetId = targetBlock.dataset.id;
+      if (draggedId === targetId) return;
+
+      const draggedIndex = counters.findIndex(i => i.id === draggedId);
+      const targetIndex = counters.findIndex(i => i.id === targetId);
+
+      if (draggedIndex !== -1 && targetIndex !== -1) {
+        const [movedItem] = counters.splice(draggedIndex, 1);
+        counters.splice(targetIndex, 0, movedItem);
+        saveData();
+        renderCards();
+      }
+    }
+
+    function handleDragEnd(e) {
+      this.classList.remove('dragging');
+      document.querySelectorAll('.item-block').forEach(b => b.classList.remove('drag-over'));
+      draggedId = null;
     }
 
     function changeCount(id, delta) {
@@ -1223,13 +1393,16 @@
 
       const currentMs = swRunning ? (Date.now() - swStartTime + swElapsedTime) : swElapsedTime;
       const rawMinutes = Math.floor(currentMs / 60000);
-      const minutesResult = rawMinutes < 1 ? 1 : rawMinutes;
+      const addMinutes = rawMinutes < 1 ? 1 : rawMinutes;
 
-      item.minutes = minutesResult;
+      const currentMinutes = (typeof item.minutes === 'number') ? item.minutes : (parseInt(item.minutes, 10) || 0);
+      const totalMinutes = currentMinutes + addMinutes;
+
+      item.minutes = totalMinutes;
       saveData();
       renderCards();
 
-      showToast(`「${item.label}」に ${minutesResult}分 を貼付しました`);
+      showToast(`「${item.label}」に ${addMinutes}分 を加算しました（合計: ${totalMinutes}分）`);
     }
 
     function updateCategorySuggestions() {
@@ -1429,6 +1602,11 @@
       const current = swRunning ? (Date.now() - swStartTime + swElapsedTime) : swElapsedTime;
       const t = formatTime(current);
       displayEl.innerHTML = `${t.main}<span class="millis">${t.millis}</span>`;
+      
+      // 動いている最中も自動保存（状態保持）
+      if (swRunning) {
+        saveStopwatchState();
+      }
     }
 
     function toggleStopwatch() {
@@ -1445,8 +1623,9 @@
         swElapsedTime += Date.now() - swStartTime;
         btn.textContent = '▶ 再開';
         btn.className = 'sw-btn start';
-        showToast('一時停止しました（貼付可能）');
+        showToast('一時停止しました');
       }
+      saveStopwatchState();
     }
 
     function resetStopwatch() {
@@ -1454,16 +1633,18 @@
       clearInterval(swTimerInterval);
       swElapsedTime = 0;
       updateSwDisplay();
+      saveStopwatchState();
 
       const btn = document.getElementById('swStartBtn');
       btn.textContent = '▶ スタート';
       btn.className = 'sw-btn start';
+      showToast('ストップウォッチをリセットしました');
     }
 
     /* エクスポート・インポート */
     function exportData() {
       const exportObject = {
-        version: "31.0",
+        version: "33.0",
         exportedAt: new Date().toISOString(),
         counters: counters
       };
@@ -1519,6 +1700,7 @@
     document.addEventListener('DOMContentLoaded', () => {
       loadData();
       renderCards();
+      updateSwDisplay();
 
       const openModalBtn = document.getElementById('openModal');
       const modalOverlay = document.getElementById('modalOverlay');
